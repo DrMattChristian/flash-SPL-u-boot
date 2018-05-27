@@ -1,0 +1,75 @@
+#!/bin/bash
+
+export flashdev=/dev/mmcblk1
+export now=$(date +%s)
+export backupdir=./backup
+export backupSPL=$backupdir/SPL-$now
+export backupUB=$backupdir/u-boot.img-$now
+
+if [[ ! -b $flashdev ]]; then
+  echo "ERROR: Flash dev $flashdev does not exist or not block special!"
+  exit 1;
+fi
+
+read -p "Backup SPL and U-Boot from $flashdev to $backupdir ? [y|N]: " -r buconfirm
+
+if [[ $buconfirm =~ ^([yY][eE][sS]|[yY])$ ]]; then
+  mkdir -p $backupdir
+  echo "Backing up SPL to $backupSPL"
+  dd if=$flashdev of=$backupSPL bs=1K skip=1 count=43 status=noxfer
+  echo "Backing up U-Boot to $backupUB"
+  # In older SPL/U-Boot versions, this WAS skip=42 but now SPL is too large.
+  dd if=$flashdev of=$backupUB bs=1K skip=69 count=330 status=noxfer
+  sync
+  echo ""
+  echo "Calculating U-Boot SHA-1 checksum of $backupUB"
+  ubsha1 $backupUB
+  echo "Running file on $backupUB"
+  file $backupUB;
+else
+  echo "Exiting without backup or flashing."
+  exit 1;
+fi
+
+export flashdir=/usr/share/uboot/mx6cuboxi
+export flashSPL=$flashdir/SPL
+export flashUB=$flashdir/u-boot.img
+
+if [[ ! -d $flashdir ]]; then
+  echo "ERROR: Flash dir $flashdir does not exist or not a directory!"
+  exit 1;
+fi
+
+if [[ ! -f $flashSPL ]]; then
+  echo "ERROR: Flash SPL $flashSPL does not exist or not a regular file!"
+  exit 1;
+fi
+
+if [[ ! -f $flashUB ]]; then
+  echo "ERROR: Flash U-Boot $flashUB does not exist or not a regular file!"
+  exit 1;
+fi
+
+echo ""
+echo "Calculating U-Boot SHA-1 checksum of $flashUB"
+ubsha1 $flashUB
+echo "Running file on $flashUB"
+file $flashUB
+
+echo ""
+read -p "Flash SPL and U-Boot from $flashdir to $flashdev ? [y|N]: " -r flconfirm
+
+if [[ $flconfirm =~ ^([yY][eE][sS]|[yY])$ ]]; then
+  # Use seek instead of skip and add conv=notrunc,fdatasync
+  echo "Flashing SPL $flashSPL"
+  dd if=$flashSPL of=$flashdev bs=1K seek=1 conv=notrunc,fdatasync status=noxfer
+  echo "Flashing U-Boot $flashUB"
+  dd if=$flashUB of=$flashdev bs=1K seek=69 conv=notrunc,fdatasync status=noxfer
+  sync
+  echo "Done!"
+  echo "Connect USB serial (115200 8-N-1 none) then reboot to activate new SPL and U-Boot.";
+else
+  echo "Exiting without flashing."
+  exit 1;
+fi
+
